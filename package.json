@@ -1,0 +1,25 @@
+{
+  "name": "youthbiz",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build:shared": "pnpm --filter @youthbiz/shared build",
+    "build:api": "pnpm --filter @youthbiz/shared build && pnpm --filter api build",
+    "dev:api": "pnpm --filter @youthbiz/shared build && pnpm --filter api dev",
+    "typecheck": "pnpm --filter @youthbiz/shared typecheck && pnpm --filter api typecheck",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.21.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.21.0",
+  "type": "module"
+}

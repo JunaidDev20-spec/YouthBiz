@@ -1,0 +1,558 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  TEACHER
+  STUDENT
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum BusinessStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum BusinessEventType {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  SUSPENDED
+  REACTIVATED
+}
+
+enum InventoryMovementType {
+  STOCK_IN
+  SALE
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  REVERSAL_IN
+  REVERSAL_OUT
+}
+
+enum SaleStatus {
+  COMPLETED
+  REVERSED
+}
+
+enum ExpenseCategory {
+  SUPPLIES
+  TRANSPORT
+  MARKETING
+  UTILITIES
+  PACKAGING
+  OTHER
+}
+
+enum ExpenseStatus {
+  ACTIVE
+  REVERSED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE
+  REJECT
+  SUSPEND
+  REACTIVATE
+  LOGIN
+  LOGOUT
+  REVERSE
+}
+
+// ============================================================
+// SCHOOL
+// ============================================================
+
+model School {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users                User[]
+  cohorts              Cohort[]
+  teams                Team[]
+  invitations          StudentInvitation[]
+  teamMembers          TeamMember[]
+  businesses           Business[]
+  businessStatusEvents BusinessStatusEvent[]
+  products             Product[]
+  inventoryMovements   InventoryMovement[]
+  inventoryBalances    InventoryBalance[]
+  sales                Sale[]
+  expenses             Expense[]
+  auditLogs            AuditLog[]
+}
+
+// ============================================================
+// USERS
+// ============================================================
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  schoolId     String     @db.Uuid
+  name         String
+  username     String
+  passwordHash String
+  role         UserRole
+  status       UserStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id])
+
+  invitationsCreated          StudentInvitation[]
+  teamMemberships             TeamMember[]
+  businessStatusEventsCreated BusinessStatusEvent[]
+  inventoryMovementsCreated   InventoryMovement[]
+  salesCreated                Sale[]
+  salesReversed               Sale[]                @relation("SaleReversedBy")
+  expensesCreated             Expense[]
+  auditLogs                   AuditLog[]
+
+  @@unique([schoolId, username])
+  @@unique([id, schoolId])
+  @@index([schoolId, role])
+  @@index([schoolId, status])
+}
+
+// ============================================================
+// STUDENT INVITATIONS
+// ============================================================
+
+model StudentInvitation {
+  id          String    @id @default(uuid()) @db.Uuid
+  schoolId    String    @db.Uuid
+  cohortId    String    @db.Uuid
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  redeemedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  createdById String    @db.Uuid
+  teamId      String?   @db.Uuid
+
+  school    School @relation(fields: [schoolId], references: [id])
+  createdBy User   @relation(fields: [createdById, schoolId], references: [id, schoolId])
+  cohort    Cohort @relation(fields: [cohortId, schoolId], references: [id, schoolId])
+  team      Team?   @relation(fields: [teamId, schoolId], references: [id, schoolId])
+
+  @@index([schoolId])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// COHORTS
+// ============================================================
+
+model Cohort {
+  id        String    @id @default(uuid()) @db.Uuid
+  schoolId  String    @db.Uuid
+  name      String
+  startDate DateTime?
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+
+  school      School              @relation(fields: [schoolId], references: [id])
+  teams       Team[]
+  invitations StudentInvitation[]
+  members     TeamMember[]
+
+  @@unique([schoolId, name])
+  @@unique([id, schoolId])
+  @@index([schoolId])
+}
+
+// ============================================================
+// TEAMS
+// ============================================================
+
+model Team {
+  id        String   @id @default(uuid()) @db.Uuid
+  schoolId  String   @db.Uuid
+  cohortId  String   @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+
+  school     School       @relation(fields: [schoolId], references: [id])
+  cohort     Cohort       @relation(fields: [cohortId, schoolId], references: [id, schoolId])
+  members    TeamMember[]
+  businesses Business[]
+  invitations StudentInvitation[]
+
+  @@unique([cohortId, name])
+  @@unique([id, schoolId])
+  @@unique([id, cohortId, schoolId])
+  @@index([schoolId])
+}
+
+// ============================================================
+// TEAM MEMBERS
+// ============================================================
+
+model TeamMember {
+  id       String   @id @default(uuid()) @db.Uuid
+  schoolId String   @db.Uuid
+  cohortId String   @db.Uuid
+  teamId   String   @db.Uuid
+  userId   String   @db.Uuid
+  joinedAt DateTime @default(now())
+
+  school School @relation(fields: [schoolId], references: [id])
+  cohort Cohort @relation(fields: [cohortId, schoolId], references: [id, schoolId])
+  team   Team   @relation(fields: [teamId, cohortId, schoolId], references: [id, cohortId, schoolId])
+  user   User   @relation(fields: [userId, schoolId], references: [id, schoolId])
+
+  // A student can belong to only one team per cohort.
+  @@unique([cohortId, userId])
+  @@index([schoolId])
+  @@index([teamId])
+  @@index([userId])
+}
+
+// ============================================================
+// BUSINESS
+// ============================================================
+
+model Business {
+  id          String         @id @default(uuid()) @db.Uuid
+  schoolId    String         @db.Uuid
+  teamId      String         @db.Uuid
+  name        String
+  description String?
+  status      BusinessStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id])
+  team   Team   @relation(fields: [teamId, schoolId], references: [id, schoolId])
+
+  statusEvents       BusinessStatusEvent[]
+  products           Product[]
+  inventoryMovements InventoryMovement[]
+  inventoryBalances  InventoryBalance[]
+  sales              Sale[]
+  expenses           Expense[]
+
+  @@unique([id, schoolId])
+  // One business per team for the MVP: a team may not register two concurrent
+  // businesses.  This is enforced here rather than in service logic so the
+  // constraint survives direct-SQL writes and future code paths.
+  @@unique([teamId])
+  @@index([schoolId, status])
+  @@index([teamId])
+}
+
+// ============================================================
+// BUSINESS STATUS HISTORY
+// ============================================================
+
+model BusinessStatusEvent {
+  id          String            @id @default(uuid()) @db.Uuid
+  schoolId    String            @db.Uuid
+  businessId  String            @db.Uuid
+  event       BusinessEventType
+  note        String?
+  createdAt   DateTime          @default(now())
+  createdById String            @db.Uuid
+
+  school    School   @relation(fields: [schoolId], references: [id])
+  business  Business @relation(fields: [businessId, schoolId], references: [id, schoolId])
+  createdBy User     @relation(fields: [createdById, schoolId], references: [id, schoolId])
+
+  @@index([schoolId, businessId, createdAt])
+}
+
+// ============================================================
+// PRODUCTS
+// ============================================================
+
+model Product {
+  id          String  @id @default(uuid()) @db.Uuid
+  schoolId    String  @db.Uuid
+  businessId  String  @db.Uuid
+  name        String
+  description String?
+  sku         String?
+  unit        String  @default("piece")
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school   School   @relation(fields: [schoolId], references: [id])
+  business Business @relation(fields: [businessId, schoolId], references: [id, schoolId])
+
+  inventoryMovements InventoryMovement[]
+  inventoryBalance   InventoryBalance?
+  saleItems          SaleItem[]
+
+  @@unique([id, businessId, schoolId])
+  @@unique([businessId, name])
+  @@unique([businessId, sku])
+  @@index([schoolId])
+  @@index([businessId])
+}
+
+// ============================================================
+// INVENTORY MOVEMENTS - PERMANENT LEDGER
+// ============================================================
+
+model InventoryMovement {
+  id         String                @id @default(uuid()) @db.Uuid
+  schoolId   String                @db.Uuid
+  businessId String                @db.Uuid
+  productId  String                @db.Uuid
+  type       InventoryMovementType
+
+  // Positive quantity; direction is determined by type.
+  quantity      Int
+  unitCostPaise Int
+
+  note        String?
+  createdById String   @db.Uuid
+  createdAt   DateTime @default(now())
+
+  // Links a reversal movement to its original movement.
+  reversalOfId String? @db.Uuid
+
+  school    School   @relation(fields: [schoolId], references: [id])
+  business  Business @relation(fields: [businessId, schoolId], references: [id, schoolId])
+  product   Product  @relation(fields: [productId, businessId, schoolId], references: [id, businessId, schoolId])
+  createdBy User     @relation(fields: [createdById, schoolId], references: [id, schoolId])
+
+  reversalOf InventoryMovement? @relation("InventoryMovementReversal", fields: [reversalOfId, businessId, schoolId, productId], references: [id, businessId, schoolId, productId])
+  reversedBy InventoryMovement? @relation("InventoryMovementReversal")
+
+  // Inverse side of the required SaleItem relationship.
+  saleItem SaleItem?
+
+  @@unique([id, businessId, schoolId, productId])
+  @@unique([reversalOfId, businessId, schoolId, productId])
+  @@index([schoolId, businessId, createdAt])
+  @@index([productId, createdAt])
+  @@index([createdById])
+}
+
+// ============================================================
+// INVENTORY BALANCE - CURRENT STATE
+// ============================================================
+
+model InventoryBalance {
+  id         String @id @default(uuid()) @db.Uuid
+  schoolId   String @db.Uuid
+  businessId String @db.Uuid
+  productId  String @db.Uuid
+
+  quantityOnHand Int @default(0)
+
+  // Authoritative total inventory value in paise.
+  inventoryValuePaise Int @default(0)
+
+  // Cached moving weighted-average cost in paise.
+  // Two database-level invariants enforce the moving weighted-average
+  // cost policy (added as CHECK constraints in the migration SQL since
+  // Prisma cannot express them in schema.prisma):
+  //   1. Zero-state consistency: quantityOnHand = 0 implies
+  //      inventoryValuePaise = 0 AND averageUnitCostPaise = 0.
+  //   2. Rounding policy (when quantityOnHand > 0):
+  //      averageUnitCostPaise = FLOOR(inventoryValuePaise / quantityOnHand).
+  //      PostgreSQL INTEGER division truncates toward zero, which equals
+  //      FLOOR for non-negative integers.  The rounding residual
+  //      inventoryValuePaise - (averageUnitCostPaise * quantityOnHand)
+  //      is always in [0, quantityOnHand-1] paise and is preserved.
+  //
+  // Sale-exhausts-stock allocation rule (service layer):
+  //   When a sale reduces quantityOnHand to 0, the entire remaining
+  //   inventoryValuePaise is recognized as COGS for that sale item —
+  //   i.e. unitCostPaise = inventoryValuePaise / quantitySold, which
+  //   absorbs the accumulated rounding residual.  This guarantees:
+  //     - Final quantityOnHand = 0 and inventoryValuePaise = 0 (both
+  //       required by the zero-state consistency CHECK above).
+  //     - Sum of COGS across the sale's items equals the inventory
+  //       value removed, so no paise is lost to rounding.
+  //   When quantityOnHand > 0 after the sale, the standard weighted-
+  //   average snapshot applies: unitCostPaise = averageUnitCostPaise,
+  //   and the residual stays in inventoryValuePaise.
+  averageUnitCostPaise Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school   School   @relation(fields: [schoolId], references: [id])
+  business Business @relation(fields: [businessId, schoolId], references: [id, schoolId])
+  product  Product  @relation(fields: [productId, businessId, schoolId], references: [id, businessId, schoolId])
+
+  // One balance per product.
+  @@unique([productId, businessId, schoolId])
+  @@index([schoolId, businessId])
+}
+
+// ============================================================
+// SALES
+// ============================================================
+
+model Sale {
+  id         String @id @default(uuid()) @db.Uuid
+  schoolId   String @db.Uuid
+  businessId String @db.Uuid
+  soldById   String @db.Uuid
+
+  status SaleStatus @default(COMPLETED)
+
+  // Total revenue in paise.
+  totalPaise Int
+
+  note   String?
+  soldAt DateTime @default(now())
+
+  // Reversal information.
+  reversedAt   DateTime?
+  reversedById String?   @db.Uuid
+  reversalNote String?
+
+  school   School   @relation(fields: [schoolId], references: [id])
+  business Business @relation(fields: [businessId, schoolId], references: [id, schoolId])
+  soldBy   User     @relation(fields: [soldById, schoolId], references: [id, schoolId])
+
+  reversedBy User? @relation("SaleReversedBy", fields: [reversedById, schoolId], references: [id, schoolId])
+
+  items SaleItem[]
+
+  @@unique([id, businessId, schoolId])
+  @@index([schoolId, businessId, soldAt])
+  @@index([soldById])
+}
+
+// ============================================================
+// SALE ITEMS
+// ============================================================
+
+model SaleItem {
+  id         String @id @default(uuid()) @db.Uuid
+  schoolId   String @db.Uuid
+  businessId String @db.Uuid
+  saleId     String @db.Uuid
+  productId  String @db.Uuid
+
+  // Quantity sold.
+  quantity Int
+
+  // Price and cost snapshots captured at sale time.
+  unitSellingPricePaise Int
+  unitCostPaise         Int
+
+  // Line totals captured at sale time.
+  revenuePaise Int
+  cogsPaise    Int
+
+  // Rounding residual absorbed when this sale exhausts all remaining
+  // stock.  Under the floor-rounding policy, the weighted-average cost
+  // is floor(inventoryValue / quantityOnHand), which leaves a residual
+  // of inventoryValue - avgCost * quantityOnHand in [0, qtyOnHand-1]
+  // paise.  When the sale that exhausts stock is recorded, the entire
+  // remaining inventoryValue is recognised as COGS:
+  //   cogsPaise = quantity * unitCostPaise + costAdjustmentPaise
+  // where costAdjustmentPaise = the residual, always >= 0.
+  // For normal (non-exhausting) sales, costAdjustmentPaise = 0.
+  costAdjustmentPaise Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  // Every sale item must have its corresponding stock deduction.
+  inventoryMovementId String @db.Uuid
+
+  sale Sale @relation(fields: [saleId, businessId, schoolId], references: [id, businessId, schoolId])
+
+  product Product @relation(fields: [productId, businessId, schoolId], references: [id, businessId, schoolId])
+
+  inventoryMovement InventoryMovement @relation(fields: [inventoryMovementId, businessId, schoolId, productId], references: [id, businessId, schoolId, productId])
+
+  @@unique([id, businessId, schoolId, productId])
+  @@unique([inventoryMovementId, businessId, schoolId, productId])
+  @@index([saleId])
+  @@index([productId])
+}
+
+// ============================================================
+// EXPENSES
+// ============================================================
+
+model Expense {
+  id          String @id @default(uuid()) @db.Uuid
+  schoolId    String @db.Uuid
+  businessId  String @db.Uuid
+  createdById String @db.Uuid
+
+  title       String
+  description String?
+  category    ExpenseCategory @default(OTHER)
+  status      ExpenseStatus   @default(ACTIVE)
+
+  amountPaise Int
+
+  incurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // A reversal is a separate record pointing to the original expense.
+  reversalOfId String? @db.Uuid
+
+  school    School   @relation(fields: [schoolId], references: [id])
+  business  Business @relation(fields: [businessId, schoolId], references: [id, schoolId])
+  createdBy User     @relation(fields: [createdById, schoolId], references: [id, schoolId])
+
+  reversalOf Expense? @relation("ExpenseReversal", fields: [reversalOfId, businessId, schoolId], references: [id, businessId, schoolId])
+  reversedBy Expense? @relation("ExpenseReversal")
+
+  @@unique([id, businessId, schoolId])
+  @@unique([reversalOfId, businessId, schoolId])
+  @@index([schoolId, businessId, incurredAt])
+  @@index([createdById])
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id       String  @id @default(uuid()) @db.Uuid
+  schoolId String  @db.Uuid
+  actorId  String? @db.Uuid
+
+  action     AuditAction
+  entityType String
+  entityId   String
+
+  // Additional context, such as changed fields or request metadata.
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  school School @relation(fields: [schoolId], references: [id])
+  actor  User?  @relation(fields: [actorId, schoolId], references: [id, schoolId])
+
+  @@index([schoolId, createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId])
+}
